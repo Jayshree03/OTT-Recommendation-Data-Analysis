@@ -1,0 +1,165 @@
+cat <<EOF > create_netflix_table.hql
+CREATE EXTERNAL TABLE IF NOT EXISTS netflix_cleaned (
+    show_id STRING,
+    type STRING,
+    title STRING,
+    director STRING,
+    cast_members STRING,
+    country STRING,
+    date_added STRING,
+    release_year INT,
+    rating STRING,
+    duration STRING,
+    listed_in STRING,
+    description STRING
+)
+ROW FORMAT SERDE 'org.apache.hadoop.hive.serde2.OpenCSVSerde'
+WITH SERDEPROPERTIES (
+   "separatorChar" = ",",
+   "quoteChar"     = "\""
+)
+STORED AS TEXTFILE
+LOCATION '/user/devasriv/netflix_data/'
+TBLPROPERTIES ("skip.header.line.count"="1");
+EOF
+
+
+hive -f create_netflix_table.hql
+
+
+# This command executes the query and prints the result to your terminal
+hive -e "SELECT * FROM netflix_cleaned LIMIT 10;"
+
+
+Here are the commands to create a separate `.hql` file for each of your five Hive queries.
+
+### \#\# 1. Top Genre for Movies Over 60 Minutes
+
+This command creates `top_genre.hql`.
+
+```bash
+cat <<EOF > top_genre.hql
+SELECT
+    genre,
+    COUNT(1) AS genre_count
+FROM
+    netflix_cleaned
+LATERAL VIEW
+    explode(split(listed_in, ', ')) AS genre_list AS genre
+WHERE
+    type = 'Movie'
+    AND duration LIKE '% min'
+    AND CAST(split(duration, ' ')[0] AS INT) > 60
+GROUP BY
+    genre
+ORDER BY
+    genre_count DESC
+LIMIT 1;
+EOF
+```
+
+-----
+
+### \#\# 2. Top Country for TV Shows and List Them
+
+This command creates `list_top_country_tv_shows.hql`.
+
+```bash
+cat <<EOF > list_top_country_tv_shows.hql
+WITH TopCountry AS (
+    SELECT
+        country
+    FROM
+        netflix_cleaned
+    WHERE
+        type = 'TV Show' AND country IS NOT NULL
+    GROUP BY
+        country
+    ORDER BY
+        COUNT(DISTINCT show_id) DESC
+    LIMIT 1
+)
+SELECT
+    t.show_id,
+    t.title,
+    t.description
+FROM
+    netflix_cleaned t
+JOIN
+    TopCountry tc ON t.country = tc.country
+WHERE
+    t.type = 'TV Show';
+EOF
+```
+
+-----
+
+### \#\# 3. Distinct Movie Categories Released in 2021
+
+This command creates `distinct_movie_categories_2021.hql`.
+
+```bash
+cat <<EOF > distinct_movie_categories_2021.hql
+SELECT DISTINCT
+    listed_in
+FROM
+    netflix_cleaned
+WHERE
+    type = 'Movie'
+    AND release_year = 2021;
+EOF
+```
+
+-----
+
+### \#\# 4. Country with the Most Movies
+
+This command creates `top_movie_country.hql`.
+
+```bash
+cat <<EOF > top_movie_country.hql
+SELECT
+    single_country,
+    COUNT(1) AS movie_count
+FROM
+    netflix_cleaned
+LATERAL VIEW
+    explode(split(country, ',')) AS country_list AS single_country_raw
+LATERAL VIEW
+    INLINE(ARRAY(TRIM(single_country_raw))) AS single_country
+WHERE
+    type = 'Movie' AND single_country != ''
+GROUP BY
+    single_country
+ORDER BY
+    movie_count DESC
+LIMIT 1;
+EOF
+```
+
+-----
+
+### \#\# 5. Country with the Most Comedy Movies
+
+This command creates `top_comedy_country.hql`.
+
+```bash
+cat <<EOF > top_comedy_country.hql
+SELECT
+    country,
+    COUNT(1) AS comedy_count
+FROM
+    netflix_cleaned
+WHERE
+    type = 'Movie'
+    AND listed_in LIKE '%Comedies%'
+    AND country IS NOT NULL
+GROUP BY
+    country
+ORDER BY
+    comedy_count DESC
+LIMIT 1;
+EOF
+```
+
+You can now execute any of these scripts from your Linux terminal using the command `hive -f <filename>.hql`. For example: `hive -f top_genre.hql`.
